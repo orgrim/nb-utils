@@ -1,0 +1,94 @@
+#!/bin/sh
+
+ARCH=`uname -m`
+KERNCONFS="GENERIC"
+SRCDIR=/usr/src
+WORKDIR=$HOME/`basename $0`
+SETS="yes"
+BUILD="yes"
+CLEAN="no"
+NOISE=0
+
+usage() {
+    echo "usage: `basename $0` [options]"
+    echo "options:"
+    echo "    -m arch         Build for particular architecture"
+    echo "    -k kernconf     Build custom kernel along with GENERIC"
+    echo "    -s src_dir      Where to find the sources"
+    echo "    -w dir          Where to put our stuff and output (sets)"
+    echo "    -S              Don't create sets"
+    echo "    -B              Don't build"
+    echo "    -D              Dry run"
+    echo "    -c              Remove obj and tools dirs first"
+    echo "    -v              Verbose"
+    echo "    -h              Print this help"
+    exit $1
+}
+
+failure() {
+	echo "Failed for $1"
+	exit 1
+}
+
+args=`getopt m:k:s:w:SBDcvh $*`
+if [ $? != 0 ]; then
+    usage 1
+fi
+
+set -- $args
+for o in $*; do
+    case $o in
+	-m) ARCH=$2; shift 2;;
+	-k) KERNCONFS="$KERNCONFS `echo $2 | tr ',' ' '`"; shift 2;;
+	-s) SRCDIR=$2; shift 2;;
+	-w) WORKDIR=$2; shift 2;;
+	-S) SETS="no"; shift;;
+	-B) BUILD="no"; shift;;
+	-D) DRY="echo"; shift;;
+	-c) CLEAN="yes"; shift;;
+	-v) NOISE=2; shift;;
+	-h) usage 1;;
+	--) shift; break;;
+    esac
+done
+
+TOOLS=$WORKDIR/tools.$ARCH
+OBJS=$WORKDIR/obj.$ARCH
+REL=$WORKDIR/release
+BUILD_OPTS="-U -m $ARCH -T $TOOLS -O $OBJS -R $REL -N $NOISE -j2"
+
+if [ "$CLEAN" = "yes" ]; then
+    for dir in $TOOLS $OBJ; do
+	if [ -d $dir ]; then
+	    rm -rf $dir
+	fi
+    done
+else
+    BUILD_OPTS="$BUILD_OPTS -u"
+fi
+
+if [ "$BUILD" = "yes" ]; then
+    $DRY $SRCDIR/build.sh $BUILD_OPTS tools || failure "tools"
+    $DRY $SRCDIR/build.sh $BUILD_OPTS distribution || failure "distribution"
+    for kc in $KERNCONFS; do
+	$DRY $SRCDIR/build.sh $BUILD_OPTS kernel=$kc || failure "kernel $kc"
+    done
+fi
+
+if [ "$SETS" = "yes" ]; then
+    $DRY $SRCDIR/build.sh $BUILD_OPTS sets || failure "sets"
+    for kc in $KERNCONFS; do
+	$DRY $SRCDIR/build.sh $BUILD_OPTS releasekernel=$kc || failure "releasekernel $kc"
+	if [ -z "$DRY" ]; then
+	    cd $REL/$ARCH/binary/kernel
+	    cp netbsd-${kc}.gz netbsd.gz
+	    gunzip netbsd.gz
+	    tar czf ../sets/kern-${kc}.tgz ./netbsd
+	    rm netbsd
+        fi
+    done
+fi
+
+echo
+echo "To install, use a kernel from $REL/$ARCH/binary/kernel then run:"
+echo $SRCDIR/build.sh $BUILD_OPTS install=/

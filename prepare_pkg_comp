@@ -1,0 +1,155 @@
+#!/bin/sh
+
+DESTDIR=/usr/pkg_comp
+RELEASE=/var/pub/NetBSD
+
+usage() {
+    echo "usage: `basename $0` [options] chroot_name"
+    echo "options:"
+    echo "    -d destdir      Sandbox path. ($DESTDIR)"
+    echo "    -s release      Path to RELEASEDIR ($RELEASE)"
+    echo "    -h              Print this help"
+    exit $1
+}
+
+args=`getopt d:s:h $*`
+if [ $? != 0 ]; then
+    usage 1
+fi
+
+set -- $args
+for o in $*; do
+    case $o in
+	-d) DESTDIR=$2; shift 2;;
+	-s) RELEASE=$2; shift 2;;
+	-h) usage 1;;
+	--) shift; break;;
+    esac
+done
+
+if [ $# != 1 ]; then
+    usage 1
+fi
+
+CHROOT=$1
+DESTDIR=$DESTDIR/$CHROOT
+RELEASE=$RELEASE/`uname -m`
+
+CONF=$HOME/pkg_comp/${CHROOT}.conf
+if [ -f $CONF ]; then
+    echo "Error: $CONF exists."
+    exit 1
+fi
+
+cat > $HOME/pkg_comp/${CHROOT}.conf <<EOF
+# -*- sh -*-
+#
+# pkg_comp - configuration file
+# See pkg_comp(8) for a detailed description of each variable.
+#
+
+# Variables used internally by pkg_comp.
+AUTO_PACKAGES=""
+AUTO_TARGET="package-install"
+BUILD_PACKAGES=""
+BUILD_TARGET="package-install"
+COPYROOTCFG="no"
+DESTDIR="$DESTDIR"
+DISTRIBDIR="$RELEASE"
+LIBKVER_STANDALONE_PREFIX="/libkver"
+MAKEROOT_HOOKS=""
+MOUNT_HOOKS=""
+NETBSD_RELEASE="no"
+REAL_CCACHE=""
+REAL_DISTFILES="/usr/pkgsrc/distfiles"
+REAL_DISTFILES_OPTS="-t null -o rw"
+REAL_PACKAGES="/usr/pkgsrc/packages"
+REAL_PACKAGES_OPTS="-t null -o rw"
+REAL_PKGSRC="/usr/pkgsrc"
+REAL_PKGSRC_OPTS="-t null -o ro"
+REAL_PKGVULNDIR="/usr/pkgsrc/distfiles"
+REAL_SRC="/usr/src"
+REAL_SRC_OPTS="-t null -o ro"
+ROOTSHELL="/bin/ksh"
+SETS="base.tgz comp.tgz etc.tgz kern-GENERIC.tgz text.tgz"
+SETS_X11="xbase.tgz xcomp.tgz xetc.tgz xfont.tgz xserver.tgz"
+SYNC_UMOUNT="no"
+UMOUNT_HOOKS=""
+
+# Default variables written to the generated mk.conf.
+BSDSRCDIR="/usr/src"
+CFLAGS=""
+CLEANDEPENDS="yes"
+CPPFLAGS=""
+CXXFLAGS=""
+DISTDIR="/pkg_comp/distfiles"
+LIBKVER_STANDALONE_PREFIX="/libkver"
+LOCALBASE="/usr/pkg"
+MKOBJDIRS="yes"
+PACKAGES="/pkg_comp/packages"
+PKGSRC_COMPILER="gcc"
+PKGVULNDIR="/usr/pkg/share"
+PKG_DBDIR="/var/db/pkg"
+PKG_DEVELOPER="yes"
+PKG_SYSCONFBASE="/usr/pkg/etc"
+USE_AUDIT_PACKAGES="yes"
+USE_XPKGWEDGE="yes"
+WRKDIR_BASENAME="default"
+WRKOBJDIR="/pkg_comp/obj/pkgsrc"
+EOF
+
+
+pkg_comp -c $CHROOT makeroot
+
+cat > $DESTDIR/etc/mk.conf <<EOF
+#
+# /etc/mk.conf
+#
+.ifdef BSD_PKG_MK
+
+WRKDIR_BASENAME ?= default
+MKOBJDIRS ?= yes
+BSDSRCDIR ?= /usr/src
+WRKOBJDIR ?= /pkg_comp/obj/pkgsrc
+DISTDIR ?= /pkg_comp/distfiles
+PACKAGES ?= /pkg_comp/packages
+CLEANDEPENDS ?= yes
+LOCALBASE ?= /usr/pkg
+PKG_SYSCONFBASE ?= /usr/pkg/etc
+USE_AUDIT_PACKAGES ?= yes
+PKGVULNDIR ?= /usr/pkg/share
+USE_XPKGWEDGE ?= yes
+PKGSRC_COMPILER ?= gcc
+LIBKVER_STANDALONE_PREFIX ?= /libkver
+
+# pkgsrc
+UPDATE_TARGET=package-install
+DEPENDS_TARGET=package-install
+#PKG_DEVELOPER=yes
+
+# pkg_chk
+PKGCHK_UPDATE_CONF=/tmp/pkgchk-update.conf
+PKGCHK_CONF=/usr/pkgsrc/pkgchk.conf
+
+# pkg options
+PKG_DEFAULT_OPTIONS+= inet6 ssl -arts -aalib -pulseaudio
+
+PKG_OPTIONS.freetype2 += subpixel truetype
+PKG_OPTIONS.irssi +=perl
+PKG_OPTIONS.scmgit+= -scmgit-gui
+PKG_OPTIONS.mplayer+= -mplayer-menu
+PKG_OPTIONS.squid+= squid-pf
+PKG_OPTIONS.php+= fastcgi suhosin
+PKG_OPTIONS.mutt+= gpgme mutt-sidebar ncursesw
+PKG_OPTIONS.cone+= wide-curses
+PKG_OPTIONS.thunderbird+= mozilla-enigmail
+
+# licenses
+ACCEPTABLE_LICENSES+= vim-license
+ACCEPTABLE_LICENSES+= mplayer-codec-license
+ACCEPTABLE_LICENSES+= openmotif-license
+ACCEPTABLE_LICENSES+= ms-ttf-license
+ACCEPTABLE_LICENSES+= unrar-license
+
+.endif # BSD_PKG_MK
+EOF

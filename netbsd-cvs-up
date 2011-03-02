@@ -1,0 +1,17 @@
+#!/bin/sh
+
+if [ -z "$SSH_AGENT_PID" ]; then
+	eval `ssh-agent -s`
+	ssh-add
+fi
+
+ssh-add -L >/dev/null 2>&1
+if [ $? != 0 ]; then
+	ssh-add
+fi
+
+for x in src xsrc pkgsrc; do
+	echo "=====> $x"
+	cd /usr/$x && cvs up
+done
+

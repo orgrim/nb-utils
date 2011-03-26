@@ -1,0 +1,48 @@
+#!/bin/sh
+
+usage() {
+    echo "usage: `basename $0` [options] new_cvsroot dir [dir..]"
+    echo "options:"
+    echo "    -e regex        Exclude dirs matching regexp"
+    echo "    -h              Print this help"
+    exit $1
+}
+
+args=`getopt e:h $*`
+if [ $? != 0 ]; then
+    usage 1
+fi
+
+set -- $args
+for o in $*; do
+    case $o in
+	-e) REGEX=$2; shift 2;;
+	-h) usage 1;;
+	--) shift; break;;
+    esac
+done
+
+if [ $# -lt 2 ]; then
+    usage 1
+fi
+
+URL=$1; shift
+
+for dir in $*; do
+    if [ -d "$dir" ]; then
+	echo "==> $dir"
+	find $dir -name 'Root' | grep 'CVS\/Root$' | while read file; do
+	    if [ -n "$REGEX" ]; then
+		# if path matches the exclusion regex, do not update cvs root
+		echo $file | grep -E "$REGEX" > /dev/null 2>&1
+		if [ $? = 0 ]; then
+		    continue
+		fi
+	    fi
+
+	    # replace the old url by the given one
+	    echo $URL > $file
+	done
+    fi
+done
+

@@ -1,0 +1,100 @@
+#!/bin/sh
+
+#
+# Copyright 2011 Nicolas Thauvin. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 
+#  1. Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE AUTHORS ``AS IS'' AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+# IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+UPDATE=no
+
+check_and_build() {
+    [ $# != 1 ] && return
+    pkg=`basename $1`
+
+    $PKG_COMP chroot "pkg_info | grep $pkg" >/dev/null 2>&1
+    if [ $? != 0 ]; then
+	echo "-- building $1"
+	$PKG_COMP build $1
+    fi
+}
+
+usage() {
+    echo "usage: `basename $0` [options] [chroot_name]"
+    echo "options:"
+    echo "    -u       Update packages with pkg_chk first"
+    echo "    -h       Print this message"
+    echo
+    exit ${1:-1}
+}
+
+args=`getopt uh $*`
+if [ $? != 0 ]; then
+    usage 1
+fi
+
+set -- $args
+for o in $*; do
+    case $o in
+        -u) UPDATE=yes; shift;;
+        -h) usage 1;;
+        --) shift; break;;
+    esac
+done
+
+if [ $# != 0 ]; then
+    CHROOT=$1
+else
+    CHROOT="default"
+fi
+
+PACKAGES_DIR=/usr/pkgsrc/packages/amd64
+PKG_COMP_PACKAGES_DIR=/pkg_comp/packages/amd64
+PKG_COMP_OPTS="-c ${CHROOT} "
+PKG_COMP="pkg_comp $PKG_COMP_OPTS"
+
+
+
+# check if pkg_tarup exists in the chroot
+check_and_build pkgtools/pkg_tarup
+
+# remove old packages
+echo "-- removing packages"
+rm ${PACKAGES_DIR}/All/*
+
+# update first, if asked
+if [ $UPDATE = "yes" ]; then
+    echo "-- building possible missing packages and updates"
+    check_and_build pkgtools/pkg_chk
+    
+    $PKG_COMP chroot pkg_chk -ua
+fi
+
+# create tarballs
+echo "creating packages"
+$PKG_COMP chroot pkg_tarup -a -d $PKG_COMP_PACKAGES_DIR/All \'*\'
+
+# finally create the pkg_summary
+echo "creating pkg_summary file"
+cd $PACKAGES_DIR/All
+pkg_info -X *.tgz | bzip2 > pkg_summary.bz2
+

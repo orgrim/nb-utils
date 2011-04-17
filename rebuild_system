@@ -77,6 +77,12 @@ for o in $*; do
     esac
 done
 
+# The work dir must be a full path
+echo $WORKDIR | grep '^/' >/dev/null 2>&1
+if [ $? != 0 ]; then
+    WORKDIR=`pwd`/$WORKDIR
+fi
+
 TOOLS=$WORKDIR/tools.$ARCH
 OBJS=$WORKDIR/obj.$ARCH
 REL=$WORKDIR/release

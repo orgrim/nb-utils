@@ -25,19 +25,27 @@
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-DESTDIR=/usr/pkg_comp
-RELEASE=/var/pub/NetBSD
+DESTDIR="/usr/pkg_comp"
+RELEASE="/var/pub/NetBSD"
+PKGSRC="/usr/pkgsrc"
+DISTFILES="/usr/pkgsrc/distfiles"
+PACKAGES="/usr/pkgsrc/packages"
 
 usage() {
     echo "usage: `basename $0` [options] chroot_name"
     echo "options:"
     echo "    -d destdir      Sandbox path. ($DESTDIR)"
-    echo "    -s release      Path to RELEASEDIR ($RELEASE)"
+    echo "    -r release      Path to RELEASEDIR ($RELEASE)"
+    echo "    -s pkgsrc       Path to PKGSRC ($PKGSRC)"
+    echo "    -f distfiles    Path to DISTFILES ($DISTFILES)"
+    echo "    -p packages     Path to PACKAGES ($PACKAGES)"
+    echo "    -e              DISTFILES and PACKAGES are in the parent directory of PKGSRC"
+    echo
     echo "    -h              Print this help"
     exit $1
 }
 
-args=`getopt d:s:h $*`
+args=`getopt d:r:s:f:p:eh $*`
 if [ $? != 0 ]; then
     usage 1
 fi
@@ -46,19 +54,33 @@ set -- $args
 for o in $*; do
     case $o in
 	-d) DESTDIR=$2; shift 2;;
-	-s) RELEASE=$2; shift 2;;
+	-r) RELEASE=$2; shift 2;;
+	-s) PKGSRC=$2; shift 2;;
+	-f) DISTFILES=$2; shift 2;;
+	-p) PACKAGES=$2; shift 2;;
+	-e) EXTERN="yes"; shift;;
 	-h) usage 1;;
 	--) shift; break;;
     esac
 done
 
 if [ $# != 1 ]; then
+    echo "Error: mmissing chroot_name"
     usage 1
 fi
 
 CHROOT=$1
 DESTDIR=$DESTDIR/$CHROOT
 RELEASE=$RELEASE/`uname -m`
+
+if [ "$EXTERN" = "yes" ]; then
+    parent=`dirname $PKGSRC`
+    DISTFILES=$parent/`basename $DISTFILES`
+    PACKAGES=$parent/`basename $PACKAGES`
+else
+    DISTFILES=$PKGSRC/`basename $DISTFILES`
+    PACKAGES=$PKGSRC/`basename $PACKAGES`
+fi
 
 CONF=$HOME/pkg_comp/${CHROOT}.conf
 if [ -f $CONF ]; then
@@ -76,7 +98,7 @@ cat > $HOME/pkg_comp/${CHROOT}.conf <<EOF
 # Variables used internally by pkg_comp.
 AUTO_PACKAGES=""
 AUTO_TARGET="package-install"
-BUILD_PACKAGES=""
+BUILD_PACKAGES="pkgtools/pkg_chk pkgtools/pkg_comp pkgtools/pkg_tarup pkgtools/pkgclean pkgtools/pkgfind"
 BUILD_TARGET="package-install"
 COPYROOTCFG="no"
 DESTDIR="$DESTDIR"
@@ -86,11 +108,11 @@ MAKEROOT_HOOKS=""
 MOUNT_HOOKS=""
 NETBSD_RELEASE="no"
 REAL_CCACHE=""
-REAL_DISTFILES="/usr/pkgsrc/distfiles"
+REAL_DISTFILES="$DISTFILES"
 REAL_DISTFILES_OPTS="-t null -o rw"
-REAL_PACKAGES="/usr/pkgsrc/packages"
+REAL_PACKAGES="$PACKAGES"
 REAL_PACKAGES_OPTS="-t null -o rw"
-REAL_PKGSRC="/usr/pkgsrc"
+REAL_PKGSRC="$PKGSRC"
 REAL_PKGSRC_OPTS="-t null -o ro"
 REAL_PKGVULNDIR="/usr/pkgsrc/distfiles"
 REAL_SRC="/usr/src"
@@ -148,6 +170,7 @@ PKGSRC_COMPILER ?= gcc
 LIBKVER_STANDALONE_PREFIX ?= /libkver
 
 # pkgsrc
+LOCALPATCHES=/usr/pkgsrc/localpatches
 UPDATE_TARGET=package-install
 DEPENDS_TARGET=package-install
 #PKG_DEVELOPER=yes
@@ -157,10 +180,10 @@ PKGCHK_UPDATE_CONF=/tmp/pkgchk-update.conf
 PKGCHK_CONF=/usr/pkgsrc/pkgchk.conf
 
 # pkg options
-PKG_DEFAULT_OPTIONS+= inet6 ssl -arts -aalib -pulseaudio
+PGSQL_VERSION_DEFAULT=90
+PKG_DEFAULT_OPTIONS+= inet6 ssl -arts -aalib -pulseaudio perl
 
-PKG_OPTIONS.freetype2 += subpixel truetype
-PKG_OPTIONS.irssi +=perl
+PKG_OPTIONS.freetype2 += subpixel
 PKG_OPTIONS.scmgit+= -scmgit-gui
 PKG_OPTIONS.mplayer+= -mplayer-menu
 PKG_OPTIONS.squid+= squid-pf

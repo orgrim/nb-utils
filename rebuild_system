@@ -77,6 +77,8 @@ for o in $*; do
     esac
 done
 
+start_time=`date +%s`
+
 # The work dir must be a full path
 echo $WORKDIR | grep '^/' >/dev/null 2>&1
 if [ $? != 0 ]; then
@@ -123,3 +125,14 @@ fi
 echo
 echo "To install, use a kernel from $REL/$ARCH/binary/kernel then run:"
 echo $SRCDIR/build.sh $BUILD_OPTS install=/
+
+end_time=`date +%s`
+duration=$(($end_time - $start_time))
+days=$(($duration/86400))
+hours=$(($duration%86400/3600))
+minutes=$(($duration%86400%3600/60))
+seconds=$(($duration%86400%3600%60))
+
+echo
+echo "Duration: ${days} days, ${hours} hours, ${minutes} minutes and ${seconds} seconds"
+

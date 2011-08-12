@@ -1,0 +1,99 @@
+#!/bin/sh
+
+# This is wrapper around /usr/pkgsrc/mk/bulk stuff
+# to make my automated partial bulk build happen.
+
+# - put a lock of find the one of the bulkbuild
+# - mount sandbox
+# - prepare the bulk: etc/mk.conf
+#   . move old packages or define PACKAGES!= date +/usr/pkgsrc/packages/%Y%m%d.%H%M
+# - check the sandbox (path is an option)
+# - run the build
+# - ln -s le packages pour nginx ?
+
+pkgsrc=/usr/pkgsrc
+sandbox=/usr/sandbox
+partial="yes"
+umount_after="yes"
+
+usage() {
+	echo "usage: `basename $0` [options] [sandbox]"
+	echo "options:"
+	echo "    -p dir    Path to pkgsrc directory"
+	echo "    -c conf   Bulk build configuration file"
+	echo "    -S        Do not do a partial build"
+	echo "    -U        Do not umount sandbox after build"
+	echo "    -h        Print this help"
+	echo
+	exit $1
+}
+
+die() {
+	echo "ERROR: $@" 1>&2
+	exit 1
+}
+
+args=`getopt p:c:SUh $*`
+if [ $? != 0 ]; then
+	usage 1
+fi
+
+set -- $args
+for o in $*; do
+	case $o in
+		-p) pkgsrc=$2; shift 2;;
+		-c) build_opts="$build_opts -c $2"; shift 2;;
+		-S) partial="no"; shift;;
+		-U) umount_after="no"; shift;;
+		-h) usage 1;;
+		--) shift; break;;
+	esac
+done
+
+# Custom sandbox path as first arg
+if [ -n "$1" ]; then
+	sandbox=$1
+fi
+
+# Check if $pkgsrc exists
+# XXX see if mksandbox always uses /usr/pkgsrc
+if [ ! -d $pkgsrc ]; then
+	die "bad pkgsrc directory: $pkgsrc"
+fi
+
+# Mount the sandbox, it can be already mounted
+# Do it here so we can forget about mounting this
+# stuff at boottime
+if [ -f $sandbox/sandbox ]; then
+	sh $sandbox/sandbox mount || die "cannot mount sandbox $sandbox"
+else
+	die "$sandbox/sandbox script does not exist"
+fi
+
+# Put a lock file in /usr/pkgsrc that can be checked by the script that
+# cvs it up from cron, and by us too.
+lockfile=$pkgsrc/.bulklock
+if [ ! -f $lockfile ]; then
+	echo "$$: bulk build in progress" > $lockfile
+else
+	# XXX look for a stale lock file
+	die "another build is running: `cat $lockfile`"
+fi
+
+# Launch the build
+[ $partial = "yes" ] && build_opts="$build_opts -s"
+
+# taken from do-sandbox-build
+sh="/bin/sh"
+build="mk/bulk/build"
+
+chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build $build_opts" $build $build_opts
+
+# Remove the lock file
+rm $lockfile
+
+# Umount the sandbox
+if [ $umount_after = "yes" ]; then
+	sh $sandbox/sandbox umount || die "cannot umount sandbox $sandbox"
+fi
+

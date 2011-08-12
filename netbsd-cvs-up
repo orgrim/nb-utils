@@ -1,17 +1,89 @@
 #!/bin/sh
 
-if [ -z "$SSH_AGENT_PID" ]; then
-	eval `ssh-agent -s`
-	ssh-add
-fi
+#
+# Copyright 2011 Nicolas Thauvin. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 
+#  1. Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE AUTHORS ``AS IS'' AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+# IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
 
-ssh-add -L >/dev/null 2>&1
+usage() {
+	echo "usage: `basename $0` [options]"
+	echo "options:"
+	echo "    -c        Cron run, do not start the ssh-agent"
+	echo "    -h        Print this help"
+	echo
+	exit $1
+}
+
+CVS_RSH=ssh
+CVSROOT=anoncvs@anoncvs.fr.NetBSD.org:/pub/NetBSD-CVS
+DIRLIST="/usr/src /usr/pkgsrc /usr/xsrc"
+BYCRON="no"
+
+args=`getopt ch $*`
 if [ $? != 0 ]; then
-	ssh-add
+	usage 1
 fi
 
-for x in src xsrc pkgsrc; do
-	echo "=====> $x"
-	cd /usr/$x && cvs up
+set -- $args
+for o in $*; do
+	case $o in
+		-c) BYCRON="yes"; shift;;
+		-h) usage 1;;
+		--) shift; break;;
+	esac
+done
+
+# We start the SSH agent when run on interactively so that the prompt
+# for the passphrase is not missed by the user
+if [ $BYCRON != "yes" ]; then
+	if [ -z "$SSH_AGENT_PID" ]; then
+		eval `ssh-agent -s`
+		ssh-add
+	fi
+
+	ssh-add -L >/dev/null 2>&1
+	if [ $? != 0 ]; then
+		ssh-add
+	fi
+fi
+
+# Check if there is a bulk build lockfile
+
+# Perform update in the directory. When it does not exists, try to
+# checkout
+for dir in $DIRLIST; do
+	echo "=========> $dir"
+	if [ $dir = "/usr/pkgsrc" -a -f $dir/.bulklock ]; then
+		echo "Bulk build in progress. Not updating"
+		continue
+	fi
+	if [ -d $dir ]; then
+		cd $dir
+		cvs -q -z 3 update -dP
+	else
+		cd `dirname $dir`
+		export CVS_RSH CVSROOT
+		cvs -q -z 3 checkout -P `basename $dir`
+	fi
 done
 

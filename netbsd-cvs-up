@@ -26,7 +26,7 @@
 #
 
 usage() {
-	echo "usage: `basename $0` [options]"
+	echo "usage: `basename $0` [options] [dirs...]"
 	echo "options:"
 	echo "    -c        Cron run, do not start the ssh-agent"
 	echo "    -h        Print this help"
@@ -53,6 +53,11 @@ for o in $*; do
 	esac
 done
 
+# Replace the DISLIST if given on the command line
+if [ $# -ge 1 ]; then
+	DIRLIST="$*"
+fi
+
 # We start the SSH agent when run on interactively so that the prompt
 # for the passphrase is not missed by the user
 if [ $BYCRON != "yes" ]; then
@@ -65,6 +70,14 @@ if [ $BYCRON != "yes" ]; then
 	if [ $? != 0 ]; then
 		ssh-add
 	fi
+else
+	# When run by cron prepare output for sendmail -t (thanks to daily)
+	host=`hostname`
+	date=`date`
+	echo "To: ${MAILTO:-root}"
+	echo "Subject: $host cvs up on $DIRLIST"
+	echo ""
+	echo "Started on $date"
 fi
 
 # Check if there is a bulk build lockfile

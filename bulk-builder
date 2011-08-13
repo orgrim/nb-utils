@@ -3,18 +3,12 @@
 # This is wrapper around /usr/pkgsrc/mk/bulk stuff
 # to make my automated partial bulk build happen.
 
-# - put a lock of find the one of the bulkbuild
-# - mount sandbox
-# - prepare the bulk: etc/mk.conf
-#   . move old packages or define PACKAGES!= date +/usr/pkgsrc/packages/%Y%m%d.%H%M
-# - check the sandbox (path is an option)
-# - run the build
-# - ln -s le packages pour nginx ?
-
 pkgsrc=/usr/pkgsrc
 sandbox=/usr/sandbox
 partial="yes"
 umount_after="yes"
+upload="yes"
+config="$pkgsrc/mk/bulk/build.conf"
 
 usage() {
 	echo "usage: `basename $0` [options] [sandbox]"
@@ -23,6 +17,7 @@ usage() {
 	echo "    -c conf   Bulk build configuration file"
 	echo "    -S        Do not do a partial build"
 	echo "    -U        Do not umount sandbox after build"
+	echo "    -R        Do not rsync the result"
 	echo "    -h        Print this help"
 	echo
 	exit $1
@@ -33,7 +28,7 @@ die() {
 	exit 1
 }
 
-args=`getopt p:c:SUh $*`
+args=`getopt p:c:SURh $*`
 if [ $? != 0 ]; then
 	usage 1
 fi
@@ -42,13 +37,29 @@ set -- $args
 for o in $*; do
 	case $o in
 		-p) pkgsrc=$2; shift 2;;
-		-c) build_opts="$build_opts -c $2"; shift 2;;
+		-c) config=$2; shift 2;;
 		-S) partial="no"; shift;;
 		-U) umount_after="no"; shift;;
+		-R) upload="no"; shift;;
 		-h) usage 1;;
 		--) shift; break;;
 	esac
 done
+
+# run the upload script anyway and tell it whether to upload or not
+if [ $upload != "yes" ]; then
+	upload_opts="$upload_opts -n"
+fi
+
+# take care of the configuration file
+echo $config | grep -q '\/'
+if [ $? != 0 ]; then
+	config="$pkgsrc/mk/bulk/$config"
+fi
+
+build_opts="$build_opts -c $config"
+upload_opts="$upload_opts -c $config"
+
 
 # Custom sandbox path as first arg
 if [ -n "$1" ]; then
@@ -56,16 +67,18 @@ if [ -n "$1" ]; then
 fi
 
 # Check if $pkgsrc exists
-# XXX see if mksandbox always uses /usr/pkgsrc
 if [ ! -d $pkgsrc ]; then
 	die "bad pkgsrc directory: $pkgsrc"
 fi
 
-# Mount the sandbox, it can be already mounted
+# Mount the sandbox, it can be already mounted.
 # Do it here so we can forget about mounting this
 # stuff at boottime
 if [ -f $sandbox/sandbox ]; then
-	sh $sandbox/sandbox mount || die "cannot mount sandbox $sandbox"
+	mount | grep $sandbox/bin >/dev/null 2>&1
+	if [ $? != 0 ]; then
+		sh $sandbox/sandbox mount || die "cannot mount sandbox $sandbox"
+	fi
 else
 	die "$sandbox/sandbox script does not exist"
 fi
@@ -87,7 +100,25 @@ fi
 sh="/bin/sh"
 build="mk/bulk/build"
 
-chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build $build_opts" $build $build_opts
+chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build \"\$@\"" $build $build_opts
+if [ $? != 0 ]; then
+	die "bulk build failed"
+fi
+
+# taken from do-sandbox-upload
+upload="mk/bulk/upload"
+chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $upload \"\$@\"" $upload $upload_opts
+rc=$?
+
+# Upload the summary and the checksums
+if [ -f $config ]; then
+	. $config
+	if [ -n "$RSYNC_DST" ]; then
+		cd $pkgsrc/packages
+		scp BSDSUM* CKSUM* MD5* SHA1* SYSVSUM* $RSYNC_DST
+		scp All/pkg_summary.gz $RSYNC_DST/All
+	fi
+fi
 
 # Remove the lock file
 rm $lockfile

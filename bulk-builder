@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# This is wrapper around /usr/pkgsrc/mk/bulk stuff
+# This is a wrapper around /usr/pkgsrc/mk/bulk stuff
 # to make my automated partial bulk build happen.
 
 pkgsrc=/usr/pkgsrc
@@ -111,7 +111,7 @@ chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $upload \"\$@\"" $upload $upload_
 rc=$?
 
 # Upload the summary and the checksums
-if [ -f $config ]; then
+if [ -f $config -a $upload = "yes" ]; then
 	. $config
 	if [ -n "$RSYNC_DST" ]; then
 		cd $pkgsrc/packages

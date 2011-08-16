@@ -29,7 +29,7 @@ die() {
 	exit 1
 }
 
-args=`getopt p:c:SURlh $*`
+args=`getopt p:c:SURl:h $*`
 if [ $? != 0 ]; then
 	usage 1
 fi
@@ -47,6 +47,10 @@ for o in $*; do
 		--) shift; break;;
 	esac
 done
+
+if [ -n "$logfile" ]; then
+    exec 1>$logfile 2>&1
+fi
 
 # run the upload script anyway and tell it whether to upload or not
 if [ $upload != "yes" ]; then
@@ -97,30 +101,30 @@ fi
 # Launch the build
 [ $partial = "yes" ] && build_opts="$build_opts -s"
 
-# taken from do-sandbox-build
+# run the bulk build (taken from do-sandbox-build)
 sh="/bin/sh"
 build="mk/bulk/build"
 [ -n "$logfile" ] || logfile="`basename $0`-`date +%Y%m%d.%H%M`.log"
 
-chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build \"\$@\" 2>&1 > $pkgsrc/$logfile" $build $build_opts
+chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build \"\$@\"" $build $build_opts
 if [ $? != 0 ]; then
 	die "bulk build failed"
-fi
-
-# taken from do-sandbox-upload
-upload="mk/bulk/upload"
-chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $upload \"\$@\"" $upload $upload_opts 2>&1 > $sandbox/$logfile
-if [ $? != 0 ]; then
-	die "could not upload packages"
 fi
 
 # Upload the summary and the checksums
 if [ -f $config -a $upload = "yes" ]; then
 	. $config
+
+	# Clean up packages
+	lintpkgsrc -r -p >/dev/null 2>&1
+
+	# Get the packages directory, from make and create the summary file
+	package_dir=`cd $pkgsrc/pkgtools/lintpkgsrc; make show-var VARNAME=PACKAGES`/All
+
+	cd $package_dir && pkg_info -X *.tgz | bzip2 > pkg_summary.bz2
+
 	if [ -n "$RSYNC_DST" ]; then
-		cd $pkgsrc/packages
-		scp BSDSUM* CKSUM* MD5* SHA1* SYSVSUM* $RSYNC_DST
-		scp All/pkg_summary.gz $RSYNC_DST/All
+		rsync $RSYNC_OPTS -a $pkgsrc/packages/ $RSYNC_DST
 	fi
 fi
 

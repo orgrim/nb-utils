@@ -30,6 +30,11 @@ if [ $# != 1 ]; then
     exit 1
 fi
 
+if [ $1 = "-h" ]; then
+    echo "usage: `basename $0` backup_dir"
+    exit 1
+fi
+
 BKPDIR=$1/`date +%Y%m%d_%H%M`
 if [ ! -d $BKPDIR ]; then
     mkdir -p $BKPDIR

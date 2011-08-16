@@ -18,6 +18,7 @@ usage() {
 	echo "    -S        Do not do a partial build"
 	echo "    -U        Do not umount sandbox after build"
 	echo "    -R        Do not rsync the result"
+	echo "    -l file   Log file"
 	echo "    -h        Print this help"
 	echo
 	exit $1
@@ -28,7 +29,7 @@ die() {
 	exit 1
 }
 
-args=`getopt p:c:SURh $*`
+args=`getopt p:c:SURlh $*`
 if [ $? != 0 ]; then
 	usage 1
 fi
@@ -41,6 +42,7 @@ for o in $*; do
 		-S) partial="no"; shift;;
 		-U) umount_after="no"; shift;;
 		-R) upload="no"; shift;;
+		-l) logfile=$2; shift 2;;
 		-h) usage 1;;
 		--) shift; break;;
 	esac
@@ -89,8 +91,7 @@ lockfile=$pkgsrc/.bulklock
 if [ ! -f $lockfile ]; then
 	echo "$$: bulk build in progress" > $lockfile
 else
-	# XXX look for a stale lock file
-	die "another build is running: `cat $lockfile`"
+	exit 0
 fi
 
 # Launch the build
@@ -99,16 +100,19 @@ fi
 # taken from do-sandbox-build
 sh="/bin/sh"
 build="mk/bulk/build"
+[ -n "$logfile" ] || logfile="`basename $0`-`date +%Y%m%d.%H%M`.log"
 
-chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build \"\$@\"" $build $build_opts
+chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build \"\$@\" 2>&1 > $pkgsrc/$logfile" $build $build_opts
 if [ $? != 0 ]; then
 	die "bulk build failed"
 fi
 
 # taken from do-sandbox-upload
 upload="mk/bulk/upload"
-chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $upload \"\$@\"" $upload $upload_opts
-rc=$?
+chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $upload \"\$@\"" $upload $upload_opts 2>&1 > $sandbox/$logfile
+if [ $? != 0 ]; then
+	die "could not upload packages"
+fi
 
 # Upload the summary and the checksums
 if [ -f $config -a $upload = "yes" ]; then
@@ -127,4 +131,5 @@ rm $lockfile
 if [ $umount_after = "yes" ]; then
 	sh $sandbox/sandbox umount || die "cannot umount sandbox $sandbox"
 fi
+
 

@@ -88,6 +88,7 @@ if [ $cvs_up = "yes" ]; then
 	echo "INFO: updating $pkgsrc with from cvs"
 	was=`pwd`
 	cd $pkgsrc && cvs up
+	cd $was
 fi
 
 # Mount the sandbox, it can be already mounted.

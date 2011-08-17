@@ -9,6 +9,7 @@ partial="yes"
 umount_after="yes"
 upload="yes"
 config="$pkgsrc/mk/bulk/build.conf"
+log="no"
 
 usage() {
 	echo "usage: `basename $0` [options] [sandbox]"
@@ -18,7 +19,7 @@ usage() {
 	echo "    -S        Do not do a partial build"
 	echo "    -U        Do not umount sandbox after build"
 	echo "    -R        Do not rsync the result"
-	echo "    -l file   Log file"
+	echo "    -l        Log to a file"
 	echo "    -h        Print this help"
 	echo
 	exit $1
@@ -29,7 +30,7 @@ die() {
 	exit 1
 }
 
-args=`getopt p:c:SURl:h $*`
+args=`getopt p:c:SURlh $*`
 if [ $? != 0 ]; then
 	usage 1
 fi
@@ -42,13 +43,14 @@ for o in $*; do
 		-S) partial="no"; shift;;
 		-U) umount_after="no"; shift;;
 		-R) upload="no"; shift;;
-		-l) logfile=$2; shift 2;;
+		-l) log="yes"; shift;;
 		-h) usage 1;;
 		--) shift; break;;
 	esac
 done
 
-if [ -n "$logfile" ]; then
+if [ $log = "yes" ]; then
+    logfile="$pkgsrc/`basename $0`-`date +%Y%m%d.%H%M`.log"
     exec 1>$logfile 2>&1
 fi
 

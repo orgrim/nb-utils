@@ -49,6 +49,7 @@ for o in $*; do
 	esac
 done
 
+
 if [ $log = "yes" ]; then
     logfile="$pkgsrc/`basename $0`-`date +%Y%m%d.%H%M`.log"
     exec 1>$logfile 2>&1
@@ -67,7 +68,6 @@ fi
 
 build_opts="$build_opts -c $config"
 upload_opts="$upload_opts -c $config"
-
 
 # Custom sandbox path as first arg
 if [ -n "$1" ]; then
@@ -106,7 +106,6 @@ fi
 # run the bulk build (taken from do-sandbox-build)
 sh="/bin/sh"
 build="mk/bulk/build"
-[ -n "$logfile" ] || logfile="`basename $0`-`date +%Y%m%d.%H%M`.log"
 
 chroot $sandbox $sh -c "cd $pkgsrc && exec $sh $build \"\$@\"" $build $build_opts
 if [ $? != 0 ]; then
@@ -118,15 +117,18 @@ if [ -f $config -a $upload = "yes" ]; then
 	. $config
 
 	# Clean up packages
+	echo "INFO: cleaning old versions of packages"
 	lintpkgsrc -r -p >/dev/null 2>&1
 
 	# Get the packages directory, from make and create the summary file
-	package_dir="`cd $pkgsrc/pkgtools/lintpkgsrc; make show-var VARNAME=PACKAGES`/All"
+	echo "INFO: creating the pkg_summary file"
+	package_dir="`cd $pkgsrc/pkgtools/lintpkgsrc; make show-var VARNAME=PACKAGES`"
 
-	cd $package_dir && pkg_info -X *.tgz | bzip2 > pkg_summary.bz2
+	cd $package_dir/All && pkg_info -X *.tgz | bzip2 > pkg_summary.bz2
 
 	if [ -n "$RSYNC_DST" ]; then
-		rsync $RSYNC_OPTS -a $pkgsrc/packages/ $RSYNC_DST
+		echo "INFO: rsync'ing packages to $RSYNC_DST"
+		rsync $RSYNC_OPTS -av $package_dir/ $RSYNC_DST
 	fi
 fi
 

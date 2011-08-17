@@ -10,17 +10,20 @@ umount_after="yes"
 upload="yes"
 config="$pkgsrc/mk/bulk/build.conf"
 log="no"
+cvs_up="no"
 
 usage() {
 	echo "usage: `basename $0` [options] [sandbox]"
 	echo "options:"
-	echo "    -p dir    Path to pkgsrc directory"
-	echo "    -c conf   Bulk build configuration file"
-	echo "    -S        Do not do a partial build"
-	echo "    -U        Do not umount sandbox after build"
-	echo "    -R        Do not rsync the result"
-	echo "    -l        Log to a file"
-	echo "    -h        Print this help"
+	echo "	  -p dir    Path to pkgsrc directory"
+	echo "	  -c conf   Bulk build configuration file"
+	echo "	  -S	    Do not do a partial build"
+	echo "	  -U	    Do not umount sandbox after build"
+	echo "	  -R	    Do not rsync the result"
+	echo "	  -l	    Log to a file"
+	echo "	  -u	    Update PKGSRC from cvs first"
+	echo
+	echo "	  -h	    Print this help"
 	echo
 	exit $1
 }
@@ -30,7 +33,7 @@ die() {
 	exit 1
 }
 
-args=`getopt p:c:SURlh $*`
+args=`getopt p:c:SURluh $*`
 if [ $? != 0 ]; then
 	usage 1
 fi
@@ -44,6 +47,7 @@ for o in $*; do
 		-U) umount_after="no"; shift;;
 		-R) upload="no"; shift;;
 		-l) log="yes"; shift;;
+		-u) cvs_up="yes"; shift;;
 		-h) usage 1;;
 		--) shift; break;;
 	esac
@@ -51,8 +55,8 @@ done
 
 
 if [ $log = "yes" ]; then
-    logfile="$pkgsrc/`basename $0`-`date +%Y%m%d.%H%M`.log"
-    exec 1>$logfile 2>&1
+	logfile="$pkgsrc/`basename $0`-`date +%Y%m%d.%H%M`.log"
+	exec 1>$logfile 2>&1
 fi
 
 # run the upload script anyway and tell it whether to upload or not
@@ -79,9 +83,15 @@ if [ ! -d $pkgsrc ]; then
 	die "bad pkgsrc directory: $pkgsrc"
 fi
 
+# First cvs up in $pkgsrc if required
+if [ $cvs_up = "yes" ]; then
+	echo "INFO: updating $pkgsrc with from cvs"
+	was=`pwd`
+	cd $pkgsrc && cvs up
+fi
+
 # Mount the sandbox, it can be already mounted.
-# Do it here so we can forget about mounting this
-# stuff at boottime
+# Do it here so we can forget about it
 if [ -f $sandbox/sandbox ]; then
 	mount | grep $sandbox/bin >/dev/null 2>&1
 	if [ $? != 0 ]; then
@@ -91,8 +101,8 @@ else
 	die "$sandbox/sandbox script does not exist"
 fi
 
-# Put a lock file in /usr/pkgsrc that can be checked by the script that
-# cvs it up from cron, and by us too.
+# Put a lock file in /usr/pkgsrc that can be checked by other scripts,
+# and by us too.
 lockfile=$pkgsrc/.bulklock
 if [ ! -f $lockfile ]; then
 	echo "$$: bulk build in progress" > $lockfile
@@ -140,4 +150,4 @@ if [ $umount_after = "yes" ]; then
 	sh $sandbox/sandbox umount || die "cannot umount sandbox $sandbox"
 fi
 
-
+exit 0

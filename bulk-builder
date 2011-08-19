@@ -139,7 +139,7 @@ if [ -f $config ]; then
 	cd $package_dir/All && pkg_info -X *.tgz | bzip2 > pkg_summary.bz2
 fi
 
-if [ -a $upload = "yes" ]; then
+if [ $upload = "yes" ]; then
 	if [ -n "$RSYNC_DST" ]; then
 		echo "INFO: rsync'ing packages to $RSYNC_DST"
 		rsync $RSYNC_OPTS -av $package_dir/ $RSYNC_DST

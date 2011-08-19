@@ -1,7 +1,5 @@
 #!/bin/sh
 
-set -x
-
 # This is a wrapper around /usr/pkgsrc/mk/bulk stuff
 # to make my automated partial bulk build happen.
 

@@ -67,8 +67,8 @@ else
     CHROOT="default"
 fi
 
-PACKAGES_DIR=/usr/pkgsrc/packages/amd64
-PKG_COMP_PACKAGES_DIR=/pkg_comp/packages/amd64
+PACKAGES_DIR=/usr/pkgsrc/packages
+PKG_COMP_PACKAGES_DIR=/pkg_comp/packages
 PKG_COMP_OPTS="-c ${CHROOT} "
 PKG_COMP="pkg_comp $PKG_COMP_OPTS"
 
@@ -86,7 +86,7 @@ if [ $UPDATE = "yes" ]; then
     echo "-- building possible missing packages and updates"
     check_and_build pkgtools/pkg_chk
     
-    $PKG_COMP chroot pkg_chk -ua
+    $PKG_COMP chroot pkg_chk -ua || exit 1
 fi
 
 # create tarballs

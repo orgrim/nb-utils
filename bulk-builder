@@ -11,6 +11,7 @@ upload="yes"
 config="$pkgsrc/mk/bulk/build.conf"
 log="no"
 cvs_up="no"
+force="no"
 
 usage() {
 	echo "usage: `basename $0` [options] [sandbox]"
@@ -22,6 +23,7 @@ usage() {
 	echo "	  -R	    Do not rsync the result"
 	echo "	  -l	    Log to a file"
 	echo "	  -u	    Update PKGSRC from cvs first"
+	echo "    -f        Force run even if there a lock file"
 	echo
 	echo "	  -h	    Print this help"
 	echo
@@ -33,7 +35,7 @@ die() {
 	exit 1
 }
 
-args=`getopt p:c:SURluh $*`
+args=`getopt p:c:SURlufh $*`
 if [ $? != 0 ]; then
 	usage 1
 fi
@@ -48,16 +50,11 @@ for o in $*; do
 		-R) upload="no"; shift;;
 		-l) log="yes"; shift;;
 		-u) cvs_up="yes"; shift;;
+		-f) force="yes"; shift;;
 		-h) usage 1;;
 		--) shift; break;;
 	esac
 done
-
-
-if [ $log = "yes" ]; then
-	logfile="$pkgsrc/`basename $0`-`date +%Y%m%d.%H%M`.log"
-	exec 1>$logfile 2>&1
-fi
 
 # run the upload script anyway and tell it whether to upload or not
 if [ $upload != "yes" ]; then
@@ -86,11 +83,16 @@ fi
 # Put a lock file in /usr/pkgsrc that can be checked by other scripts,
 # and by us too.
 lockfile=$pkgsrc/.bulklock
-if [ ! -f $lockfile ]; then
+if [ ! -f $lockfile -o $force = "yes" ]; then
 	echo "$$: bulk build in progress" > $lockfile
 else
 	echo "INFO: lockfile found aborting"
 	exit 0
+fi
+
+if [ $log = "yes" ]; then
+	logfile="$pkgsrc/`basename $0`-`date +%Y%m%d.%H%M`.log"
+	exec 1>$logfile 2>&1
 fi
 
 # First cvs up in $pkgsrc if required
@@ -152,6 +154,13 @@ rm $lockfile
 # Umount the sandbox
 if [ $umount_after = "yes" ]; then
 	sh $sandbox/sandbox umount || die "cannot umount sandbox $sandbox"
+fi
+
+# Cleaning
+localbase="`cd $pkgsrc/pkgtools/lintpkgsrc; make show-var VARNAME=LOCALBASE`"
+if [ -x $localbase/bin/pkgclean ]; then
+	echo "INFO: cleaning work dirs"
+	$localbase/bin/pkgclean
 fi
 
 exit 0

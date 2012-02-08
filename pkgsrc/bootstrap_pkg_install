@@ -1,0 +1,221 @@
+#!/bin/sh
+#
+# Copyright 2011 Nicolas Thauvin. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 
+#  1. Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE AUTHORS ``AS IS'' AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+# IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+usage() {
+    echo "usage: $0 [options] repository_url"
+    echo "options:"
+    echo "    -d localbase    Path to LOCALBASE"
+    echo
+    echo "    -I              Do not install pkgin"
+    echo "    -h              Print help"
+    echo "    -v              Verbose mode"
+    echo "    -V              Print version and exit"
+    echo
+    exit $1
+}
+
+die() {
+    echo "ERROR: $*" 1>&2
+    rm -rf $tmpdir
+    exit 1
+}
+
+info() {
+    echo "INFO: $*"
+}
+
+version=0.0.1
+verbose="no"
+with_pkgin="yes"
+
+os=`uname -s`
+arch=`uname -m`
+version=`uname -r`
+mirror="ftp://ftp.netbsd.org/pub/pkgsrc/packages/NetBSD/$arch/5.1/All"
+localbase=/usr/pkg
+pkgdb=/var/db/pkg
+
+args=`getopt d:IhvV $*`
+if [ $? != 0 ]; then
+    usage 1
+fi
+
+set -- $args
+for o in $*; do
+    case $o in
+	-d) localbase=$2; shift 2;;
+	-v) verbose="yes"; shift;;
+	-V) echo "$0 $version"; shift;;
+	-I) $with_pkgin="no"; shift;;
+	-h) usage 1;;
+	--) shift; break;;
+    esac
+done
+
+if [ $# -ge 1 ]; then
+    mirror=$1    
+fi
+
+info "PKG_PATH is $mirror"
+info "LOCALBASE is $localbase"
+
+tmpdir=/tmp/bsps.$$
+[ -d $tmpdir ] || mkdir -p $tmpdir
+
+# Get the pkg_summary file. It contains the name of the tarball of pkg_install
+info "Retrieving the pkg_summary file"
+summary=$tmpdir/pkg_summary.gz
+ftp -o $summary $mirror/pkg_summary.gz >/dev/null 2>&1
+if [ $? != 0 ]; then
+    # Try the bz2
+    summary=$tmpdir/pkg_summary.bz2
+    ftp -o $summary $mirror/pkg_summary.bz2 >/dev/null 2>&1
+    if [ $? != 0 ]; then
+	die "Could not get the pkg_summary file of the repository"
+    else
+	bzip2 -f -d $summary || die "Could not uncompress the pkg_summary file"
+    fi
+else
+    gzip -f -d $summary || die "Could not uncompress the pkg_summary file"
+fi
+
+summary=$tmpdir/pkg_summary
+
+tarball=`awk -F'=' '$1 == "FILE_NAME" && $2 ~ /^pkg_install-[0-9]/ { print $2 }' $summary`
+if [ $? != 0 ]; then
+    die "Could not find the pkg_install package in the summary"
+fi
+
+pkg=`basename $tarball .tgz`
+# Check if pkg_install is already here or newer
+if [ -d $pkgdb/$pkg ]; then
+    info "$pkg is already installed"
+    install=no
+fi
+
+tv=`echo $pkg | sed -e 's,pkg_install-,,'`
+for x in `ls -d $pkgdb/pkg_install-[0-9]* 2>/dev/null`; do
+    v=`echo $x | sed -e "s,$pkgdb/pkg_install-,,"`
+    if [ $v -gt $tv ]; then
+	info "already installed pkg_install-$v is newer"
+	install=no
+	break
+    else
+	oldies="$oldies $v"
+    fi
+done
+
+if [ "$install" != "no" ]; then
+    info "Found $tarball. Retrieving..."
+
+    ftp -V -o $tmpdir/$tarball $mirror/$tarball
+    if [ $? != 0 ]; then
+	die "Could not fetch $tarball from repository"
+    fi
+
+    info "Preparing $localbase"
+    mkdir -p $localbase
+
+    # Extract the package to a temporary space. We will need to move the
+    # files ourselves and exec the scripts.
+    mkdir -p $tmpdir/$pkg
+    was=`pwd`
+    cd $tmpdir/$pkg
+    tar xzf ../$tarball
+    if [ $? != 0 ]; then
+	cd $was
+	die "Extraction failed"
+    fi
+
+    if [ ! -z "$oldies" ]; then
+	info "Found old versions of pkg_install"
+	for v in $oldies; do
+	    info "Removing pkg_install-$v"
+	    $tmpdir/$pkg/sbin/pkg_delete -ff -- "pkg_install-$v" 
+	done
+    fi
+
+    info "Installing $pkg"
+    if [ ! -d $localbase ]; then
+	mkdir -p $localbase
+	if [ $? != 0 ]; then
+	    die "Pre-install phase failed"
+	fi
+    fi
+
+    # add the package + files to the pkgdb tree
+    mkdir -p $pkgdb/$pkg
+    if [ $? != 0 ]; then
+	die "Could not create $pkgdb/$pkg"
+    fi
+
+    mv -- +* $pkgdb/$pkg
+    if [ $? != 0 ]; then
+	rm -rf $pkgdb/$pkg
+	die "Could not move database files to $pkgdb/$pkg"
+    fi
+
+    # pax the files to localbase
+    tar cf - * | (cd $localbase && tar xf -)
+    if [ $? != 0 ]; then
+	rm -rf $pkgdb/$pkg
+	die "Could not install package files"
+    fi
+
+    # run the postinstall of +INSTALL
+    $localbase/sbin/pkg_admin rebuild >/dev/null
+    if [ $? != 0 ]; then
+	die "Database rebuild failed. Retry and debug with pkg_admin"
+    fi
+fi
+
+# add pkgin
+if [ $with_pkgin = "yes" ]; then
+    info "Installing pkgin"
+    pkgin_tb=`awk -F'=' '$1 == "FILE_NAME" && $2 ~ /^pkgin-[0-9]/ { print $2 }' $summary`
+    if [ -z "$pkgin_tb" ]; then
+	die "Could not find the pkgin package in the summary"
+    else
+	# check if pkgin is already installed
+	$localbase/sbin/pkg_info -e pkgin > /dev/null 2>&1
+	if [ $? != 0 ]; then
+	    $localbase/sbin/pkg_add $mirror/$pkgin_tb >/dev/null
+
+	    info "Preparing $localbase/etc/pkgin/repositories.conf"
+	    grep '^#' $localbase/etc/pkgin/repositories.conf > $tmpdir/repositories.conf
+	    echo $mirror >> $tmpdir/repositories.conf
+	    mv $tmpdir/repositories.conf $localbase/etc/pkgin/repositories.conf
+	else
+	    info "pkgin is already installed."
+	fi
+
+	info "Updating the database of pkgin"
+	$localbase/bin/pkgin update
+    fi
+fi
+
+rm -rf $tmpdir
+exit 0

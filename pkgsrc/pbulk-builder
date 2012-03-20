@@ -1,0 +1,201 @@
+#!/bin/sh
+#
+# Copyright 2012 Nicolas Thauvin. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 
+#  1. Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE AUTHORS ``AS IS'' AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+# IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+# Wrapper around pbulk tool to manage my regular pbulk patial builds
+
+umount_after="yes"
+bootstrap="no"
+src=/usr/src
+pkgsrc=/usr/pkgsrc
+sandbox=/usr/sandbox
+
+bulk_user=pbulk
+pkg_bulk=/usr/pkg_bulk
+bulklog=/bulklog
+scratch=/scratch
+distfiles=/distfiles
+packages=/packages
+
+
+usage() {
+    echo "usage: `basename $0` [options] [sandbox]"
+    echo "options:"
+    echo "    -p dir    Path to pkgsrc directory ($pkgsrc)"
+    echo "    -s dir    Path to src directory ($src)"
+    echo "    -U        Do not umount sandbox afterward"
+    echo "    -u user   Bulk build user inside the sandbox ($bulk_user)"
+    echo "    -t dir    pbulk install root ($pkg_bulk)"
+    echo "    -B        Bootstrap sandbox and pbulk"
+    echo
+    echo "    -h        Print this help"
+    echo
+    echo "Sandbox directory is $sandbox"
+    echo
+    exit $1
+}
+
+die() {
+    echo "ERROR: $*" 1>&2
+    exit 1
+}
+
+info() {
+    echo "INFO: $*" 1>&2
+}
+
+create_sandbox() {
+    if [ -d $sandbox -a -n "`ls $sandbox 2>/dev/null`" ]; then
+	die "Sandbox already exists. Aborting."
+    fi
+
+    sh $pkgsrc/mk/bulk/mksandbox --pkgsrc=$pkgsrc --src=$src --without-x $sandbox
+    cat $sandbox/sandbox | sed -e 's/^"$/\/var\/spool \/var\/spool rw \\\
+"/' > $sandbox/sandbox.new
+    rm $sandbox/sandbox && mv $sandbox/sandbox.new $sandbox/sandbox && chmod 755 $sandbox/sandbox
+    $sandbox/sandbox umount
+    $sandbox/sandbox mount
+}
+
+ensure_sandbox_is_ready() {
+    # Mount the sandbox, it can be already mounted.
+    if [ -f $sandbox/sandbox ]; then
+        mount | grep $sandbox/bin >/dev/null 2>&1
+        if [ $? != 0 ]; then
+            sh $sandbox/sandbox mount || die "cannot mount sandbox $sandbox"
+        fi
+    else
+        die "$sandbox/sandbox script does not exist"
+    fi
+}
+
+prepare_pbulk() {
+    ensure_sandbox_is_ready
+
+    if [ $? != 0 ]; then
+	die "Is there a sandbox at $sandbox?"
+    fi
+
+    cat > $sandbox/tmp/setup_pbulk.$$.sh <<EOF
+#!/bin/sh
+
+mkdir $bulklog $scratch $distfiles $packages
+
+useradd -m -b /home $bulk_user
+chown $bulk_user $scratch
+
+cd $pkgsrc/bootstrap
+if [ -d work ]; then
+   rm -rf work
+fi
+
+./bootstrap --prefix=$pkg_bulk --pkgdbdir=$pkg_bulk/.pkgdb
+if [ \$? != 0 ]; then
+    exit 1
+fi
+
+rm -rf work
+
+cat > $pkg_bulk/etc/mk.conf <<EOMK
+.ifdef BSD_PKG_MK       # begin pkgsrc settings
+
+PKG_DBDIR=              $pkg_bulk/.pkgdb
+LOCALBASE=              $pkg_bulk
+VARBASE=                $pkg_bulk/var
+PKG_TOOLS_BIN=          $pkg_bulk/sbin
+PKGMANDIR=              man
+PACKAGES=               $scratch/pbulk_packages
+
+MAKE_JOBS=              2
+
+.endif                  # end pkgsrc settings
+EOMK
+
+cd $pkgsrc/pkgtools/pbulk
+export PATH=$pkg_bulk/bin:/usr/pkg_bulk/sbin:\${PATH}
+bmake install clean clean-depends
+
+EOF
+
+    chmod +x $sandbox/tmp/setup_pbulk.$$.sh
+    chroot $sandbox /bin/sh -c /tmp/setup_pbulk.$$.sh
+    return $?
+}
+
+
+
+args=`getopt p:s:Uu:t:Bh $*`
+if [ $? != 0 ]; then
+    usage 1
+fi
+
+set -- $args
+for o in $*; do
+    case $o in
+	-p) pkgsrc=$2; shift 2;;
+	-s) src=$2; shift 2;;
+	-U) umount_after="no"; shift;;
+	-u) bulk_user=$2; shift 2;;
+	-t) pkg_bulk=$2; shift 2;;
+	-B) bootstrap="yes"; shift;;
+	-h) usage 1;;
+	--) shift; break;;
+    esac
+done
+
+# Custom sandbox path as first arg
+if [ -n "$1" ]; then
+    sandbox=$1
+fi
+
+if [ $bootstrap = "yes" ]; then
+    create_sandbox
+    prepare_pbulk || die "Could prepare pbulk install tree"
+
+cat <<EOF
+
+You may now configure pbulk in $sandbox/$pkg_bulk/etc/pbulk.conf.
+Options to change:
+
+base_url= 
+master_mode=no
+#bootstrapkit=...
+unprivileged_user=$bulk_user
+make=/usr/bin/make
+
+
+The following variables must be added to $sandbox/etc/mk.conf:
+
+WRKOBJDIR=              /scratch
+PKGSRCDIR=              /usr/pkgsrc
+DISTDIR=                /distfiles
+PACKAGES=               /packages
+
+# The sandbox was created without X11
+X11_TYPE=               modular
+EOF
+
+fi
+

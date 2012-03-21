@@ -43,6 +43,7 @@ lockfile=$sandbox/var/run/`basename $0`.pid
 exit_on_failure="no"
 preload_libkver="no"
 cvs_up="no"
+one_shot="no"
 
 usage() {
     echo "usage: `basename $0` [options] [sandbox]"
@@ -56,6 +57,7 @@ usage() {
     echo "    -k        Preload /lib/libkver.so before running"
     echo "    -u        Update PKGSRC from cvs first"
     echo "    -e        Exit on failure"
+    echo "    -1        One shot, otherwise enter a build loop"
     echo
     echo "    -h        Print this help"
     echo
@@ -255,7 +257,7 @@ build_is_running() {
     fi
 }
 
-args=`getopt p:s:Uu:t:Bhkue $*`
+args=`getopt p:s:Uu:t:Bhkue1 $*`
 if [ $? != 0 ]; then
     usage 1
 fi
@@ -272,6 +274,7 @@ for o in $*; do
 	-k) preload_libkver="yes"; shift;;
 	-u) cvs_up="yes"; shift;;
 	-e) exit_on_failure="yes";;
+	-1) one_shot="yes";;
 	-h) usage 1;;
 	--) shift; break;;
     esac
@@ -289,7 +292,7 @@ if [ $bootstrap = "yes" ]; then
     create_sandbox
     prepare_pbulk || die "Could prepare pbulk install tree"
 
-cat <<EOF
+    cat <<EOF
 
 You may now configure pbulk in $sandbox/$pkg_bulk/etc/pbulk.conf.
 Options to change:
@@ -310,22 +313,30 @@ PACKAGES=               /packages
 
 # The sandbox was created without X11
 X11_TYPE=               modular
+
 EOF
 
+    exit 0
 fi
 
-# This one can be interrupted. It shall do a restart when applicable
-while [ 1 ]; do
+#
+if [ $one_shot = "yes" ]; then
     do_bulkbuild
+    exit $?
+else
+    # This loop can be interrupted. It shall do a restart when applicable
+    while [ 1 ]; do
+	do_bulkbuild
 
-    if [ $? != 0 ]; then
-	info "build returned non zero"
-	# Something bad happened. save the logs
-	cd $sandbox/$bulklog/..
-	totar="`basename $bulklog`-`date +%Y%m%d.%H%M`"
-	cp -r `basename $bulklog` $totar
-	tar czf ${totar}.tgz $totar
+	if [ $? != 0 ]; then
+	    info "build returned non zero"
+	    # Something bad happened. save the logs
+	    cd $sandbox/$bulklog/..
+	    totar="`basename $bulklog`-`date +%Y%m%d.%H%M`"
+	    cp -r `basename $bulklog` $totar
+	    tar czf ${totar}.tgz $totar
 
-	[ $exit_on_failure = "yes" ] && die "failed. exiting as requested"
-    fi
-done
+	    [ $exit_on_failure = "yes" ] && die "failed. exiting as requested"
+	fi
+    done
+fi

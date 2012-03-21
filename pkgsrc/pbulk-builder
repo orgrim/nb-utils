@@ -204,7 +204,7 @@ EOF
 		    cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
 #!/bin/sh
 
-env LD_PRELOAD=/lib/libkver.so $pkg_bulk/bin/bulkbuild
+env LD_PRELOAD=/lib/libkver.so $pkg_bulk/bin/bulkbuild-restart
 exit \$?
 EOF
 
@@ -212,7 +212,7 @@ EOF
 		cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
 #!/bin/sh
 
-$pkg_bulk/bin/bulkbuild
+$pkg_bulk/bin/bulkbuild-restart
 exit \$?
 EOF
 	    fi

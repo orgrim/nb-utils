@@ -39,6 +39,7 @@ scratch=/scratch
 distfiles=/distfiles
 packages=/packages
 
+# keep that lock file inside the sandbox to allow multiple sandboxes
 lockfile=$sandbox/var/run/`basename $0`.pid
 exit_on_failure="no"
 preload_libkver="no"
@@ -55,7 +56,7 @@ usage() {
     echo "    -t dir    pbulk install root ($pkg_bulk)"
     echo "    -B        Bootstrap sandbox and pbulk"
     echo "    -k        Preload /lib/libkver.so before running"
-    echo "    -u        Update PKGSRC from cvs first"
+    echo "    -c        Update PKGSRC from cvs first"
     echo "    -e        Exit on failure"
     echo "    -1        One shot, otherwise enter a build loop"
     echo
@@ -257,7 +258,7 @@ build_is_running() {
     fi
 }
 
-args=`getopt p:s:Uu:t:Bhkue1 $*`
+args=`getopt p:s:Uu:t:Bkce1h $*`
 if [ $? != 0 ]; then
     usage 1
 fi
@@ -272,7 +273,7 @@ for o in $*; do
 	-t) pkg_bulk=$2; shift 2;;
 	-B) bootstrap="yes"; shift;;
 	-k) preload_libkver="yes"; shift;;
-	-u) cvs_up="yes"; shift;;
+	-c) cvs_up="yes"; shift;;
 	-e) exit_on_failure="yes";;
 	-1) one_shot="yes";;
 	-h) usage 1;;
@@ -314,6 +315,7 @@ PACKAGES=               /packages
 # The sandbox was created without X11
 X11_TYPE=               modular
 
+# The sandbox is mounted
 EOF
 
     exit 0
@@ -322,7 +324,13 @@ fi
 #
 if [ $one_shot = "yes" ]; then
     do_bulkbuild
-    exit $?
+    s=$?
+    if [ $s = 0 -a $umount_after = "yes" ]; then
+	$sandbox/sandbox umount
+	exit $?
+    fi
+	
+    exit $s
 else
     # This loop can be interrupted. It shall do a restart when applicable
     while [ 1 ]; do

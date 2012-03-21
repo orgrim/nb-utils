@@ -39,6 +39,10 @@ scratch=/scratch
 distfiles=/distfiles
 packages=/packages
 
+lockfile=$sandbox/var/run/`basename $0`.pid
+exit_on_failure="no"
+preload_libkver="no"
+cvs_up="no"
 
 usage() {
     echo "usage: `basename $0` [options] [sandbox]"
@@ -49,6 +53,9 @@ usage() {
     echo "    -u user   Bulk build user inside the sandbox ($bulk_user)"
     echo "    -t dir    pbulk install root ($pkg_bulk)"
     echo "    -B        Bootstrap sandbox and pbulk"
+    echo "    -k        Preload /lib/libkver.so before running"
+    echo "    -u        Update PKGSRC from cvs first"
+    echo "    -e        Exit on failure"
     echo
     echo "    -h        Print this help"
     echo
@@ -144,9 +151,111 @@ EOF
     return $?
 }
 
+do_bulkbuild() {
+    ensure_sandbox_is_ready
 
+    # Put a lock file, to ensure we have one build a time. This lock
+    # file contains the PID of this script to allow choosing if a
+    # restart is needed
+    build_is_running
+    r=$?
+    case $r in
+	0)  # No build running - run bulkbuild
+	    # Put the lockfile
+	    echo $$ > $lockfile
 
-args=`getopt p:s:Uu:t:Bh $*`
+	    update_pkgsrc
+
+	    # Run pbulk with libkver when requested, this ensures the
+	    # build OS version of the packages is from userland not
+	    # the kernel
+	    if [ $preload_libkver = "yes" ]; then
+		[ -f $sandbox/tmp/run_pbulk.$$.sh ] || \
+		    cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
+#!/bin/sh
+
+env LD_PRELOAD=/lib/libkver.so $pkg_bulk/bin/bulkbuild
+EOF
+
+	    else
+		cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
+#!/bin/sh
+
+$pkg_bulk/bin/bulkbuild
+EOF
+	    fi
+	    chmod +x $sandbox/tmp/run_pbulk.$$.sh
+	    ;;
+	1)
+	    die "Looks like a build in running. (`cat $lockfile`)"
+	    ;;
+	2)
+	    # Update the lockfile
+	    echo $$ > $lockfile
+
+	    # Run pbulk with libkver when requested, this ensures the
+	    # build OS version of the packages is from userland not
+	    # the kernel
+	    if [ $preload_libkver = "yes" ]; then
+		[ -f $sandbox/tmp/run_pbulk.$$.sh ] || \
+		    cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
+#!/bin/sh
+
+env LD_PRELOAD=/lib/libkver.so $pkg_bulk/bin/bulkbuild
+exit \$?
+EOF
+
+	    else
+		cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
+#!/bin/sh
+
+$pkg_bulk/bin/bulkbuild
+exit \$?
+EOF
+	    fi
+	    chmod +x $sandbox/tmp/run_pbulk.$$.sh
+	    ;;
+    esac
+
+    # run the prepared script inside the sandbox
+    chroot $sandbox /bin/sh -c /tmp/run_pbulk.$$.sh
+    rc=$?
+
+    # Remove lockfile
+    rm $lockfile
+
+    return $rc
+}
+
+update_pkgsrc() {
+    # Update pkgsrc tree, if required
+    if [ $cvs_up = "yes" ]; then
+        info "updating $pkgsrc from cvs"
+        was=`pwd`
+        cd $pkgsrc && cvs -q -z3 update -dP
+        cd $was
+    fi
+}
+
+build_is_running() {
+    
+    if [ -f $lockfile ]; then
+	locked_pid=`cat $lockfile`
+	ps xa | awk '{ print $1 }' | grep '^'$locked_pid'$' >/dev/null 2>&1
+	if [ $? = 0 ]; then
+	    # PID exists
+	    return 1
+	else
+	    # Stale lockfile
+	    return 2
+	fi
+    else
+	# No lock
+	return 0
+    fi
+}
+
+args=`getopt p:s:Uu:t:Bhkue $*`
 if [ $? != 0 ]; then
     usage 1
 fi
@@ -160,6 +269,9 @@ for o in $*; do
 	-u) bulk_user=$2; shift 2;;
 	-t) pkg_bulk=$2; shift 2;;
 	-B) bootstrap="yes"; shift;;
+	-k) preload_libkver="yes"; shift;;
+	-u) cvs_up="yes"; shift;;
+	-e) exit_on_failure="yes";;
 	-h) usage 1;;
 	--) shift; break;;
     esac
@@ -169,6 +281,9 @@ done
 if [ -n "$1" ]; then
     sandbox=$1
 fi
+
+# Check if we are in a screen/tmux
+[ "${TERM}" != "screen" ] && die "You *want* to run that in screen or tmux"
 
 if [ $bootstrap = "yes" ]; then
     create_sandbox
@@ -199,3 +314,18 @@ EOF
 
 fi
 
+# This one can be interrupted. It shall do a restart when applicable
+while [ 1 ]; do
+    do_bulkbuild
+
+    if [ $? != 0 ]; then
+	info "build returned non zero"
+	# Something bad happened. save the logs
+	cd $sandbox/$bulklog/..
+	totar="`basename $bulklog`-`date +%Y%m%d.%H%M`"
+	cp -r `basename $bulklog` $totar
+	tar czf ${totar}.tgz $totar
+
+	[ $exit_on_failure = "yes" ] && die "failed. exiting as requested"
+    fi
+done

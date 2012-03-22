@@ -219,7 +219,7 @@ EOF
 env LD_PRELOAD=/lib/libkver.so $pkg_bulk/bin/bulkbuild-restart
 exit \$?
 EOF
-
+		fi
 	    else
 		cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
 #!/bin/sh
@@ -228,7 +228,7 @@ $pkg_bulk/bin/bulkbuild-restart
 exit \$?
 EOF
 	    fi
-	    chmod +x $sandbox/tmp/run_pbulk.$$.sh
+		chmod +x $sandbox/tmp/run_pbulk.$$.sh
 	    ;;
     esac
 
@@ -258,6 +258,8 @@ update_pkgsrc() {
         cd $pkgsrc && cvs -q -z3 update -dP
         cd $was
     fi
+
+    # XXX Parse the output of cvs up to see if there is work to do?
 
     # Reset the signal handler
     trap - INT TERM KILL EXIT

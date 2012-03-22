@@ -39,8 +39,6 @@ scratch=/scratch
 distfiles=/distfiles
 packages=/packages
 
-# keep that lock file inside the sandbox to allow multiple sandboxes
-lockfile=$sandbox/var/run/`basename $0`.pid
 exit_on_failure="no"
 preload_libkver="no"
 cvs_up="no"
@@ -165,6 +163,7 @@ do_bulkbuild() {
     case $r in
 	0)  # No build running - run bulkbuild
 	    # Put the lockfile
+	    [ -d `dirname $lockfile` ] || mkdir -p `dirname $lockfile`
 	    echo $$ > $lockfile
 
 	    update_pkgsrc
@@ -172,14 +171,20 @@ do_bulkbuild() {
 	    # Run pbulk with libkver when requested, this ensures the
 	    # build OS version of the packages is from userland not
 	    # the kernel
+	    info "running $pkg_bulk/bin/bulkbuild in $sandbox"
 	    if [ $preload_libkver = "yes" ]; then
-		[ -f $sandbox/tmp/run_pbulk.$$.sh ] || \
+		if [ ! -f $sandbox/tmp/run_pbulk.$$.sh ]; then
+		    [ ! -f /lib/libkver.so ] && \
+			die "/lib/libkver.so not found."
+		    [ ! -L $sandbox/libkver_osrelease ] && \
+			die "$sandbox/libkver_osrelease not found."
+
 		    cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
 #!/bin/sh
 
 env LD_PRELOAD=/lib/libkver.so $pkg_bulk/bin/bulkbuild
 EOF
-
+		fi
 	    else
 		cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
 #!/bin/sh
@@ -194,13 +199,20 @@ EOF
 	    ;;
 	2)
 	    # Update the lockfile
+	    [ -d `dirname $lockfile` ] || mkdir -p `dirname $lockfile`
 	    echo $$ > $lockfile
 
 	    # Run pbulk with libkver when requested, this ensures the
 	    # build OS version of the packages is from userland not
 	    # the kernel
+	    info "running $pkg_bulk/bin/bulkbuild-restart in $sandbox"
 	    if [ $preload_libkver = "yes" ]; then
-		[ -f $sandbox/tmp/run_pbulk.$$.sh ] || \
+		if [ -f $sandbox/tmp/run_pbulk.$$.sh ]; then
+		    [ ! -f /lib/libkver.so ] && \
+			die "/lib/libkver.so not found."
+		    [ ! -L $sandbox/libkver_osrelease ] && \
+			die "$sandbox/libkver_osrelease not found."
+
 		    cat > $sandbox/tmp/run_pbulk.$$.sh <<EOF
 #!/bin/sh
 
@@ -224,6 +236,10 @@ EOF
     chroot $sandbox /bin/sh -c /tmp/run_pbulk.$$.sh
     rc=$?
 
+    # XXX what about checking if we have build failures to see how to
+    # return ? It looks like bulkbuild returns the last exit status of
+    # the last command it runs (e.g. rsync)
+
     # Remove lockfile
     rm $lockfile
 
@@ -231,6 +247,10 @@ EOF
 }
 
 update_pkgsrc() {
+    # Remove the lock file if the script stops during the update. This
+    # way we wont trigger a restart of the build
+    trap "rm -f $lockfile; exit 1" INT TERM KILL EXIT
+
     # Update pkgsrc tree, if required
     if [ $cvs_up = "yes" ]; then
         info "updating $pkgsrc from cvs"
@@ -238,6 +258,9 @@ update_pkgsrc() {
         cd $pkgsrc && cvs -q -z3 update -dP
         cd $was
     fi
+
+    # Reset the signal handler
+    trap - INT TERM KILL EXIT
 }
 
 build_is_running() {
@@ -274,8 +297,8 @@ for o in $*; do
 	-B) bootstrap="yes"; shift;;
 	-k) preload_libkver="yes"; shift;;
 	-c) cvs_up="yes"; shift;;
-	-e) exit_on_failure="yes";;
-	-1) one_shot="yes";;
+	-e) exit_on_failure="yes"; shift;;
+	-1) one_shot="yes"; shift;;
 	-h) usage 1;;
 	--) shift; break;;
     esac
@@ -285,6 +308,10 @@ done
 if [ -n "$1" ]; then
     sandbox=$1
 fi
+
+# Create the lock inside the sandbox so that different builds in
+# separate sandbox are possible
+lockfile=$sandbox/var/run/`basename $0`.pid
 
 # Check if we are in a screen/tmux
 [ "${TERM}" != "screen" ] && die "You *want* to run that in screen or tmux"
@@ -307,10 +334,10 @@ make=/usr/bin/make
 
 The following variables must be added to $sandbox/etc/mk.conf:
 
-WRKOBJDIR=              /scratch
-PKGSRCDIR=              /usr/pkgsrc
-DISTDIR=                /distfiles
-PACKAGES=               /packages
+WRKOBJDIR=              $scratch
+PKGSRCDIR=              $pkgsrc
+DISTDIR=                $distfiles
+PACKAGES=               $packages
 
 # The sandbox was created without X11
 X11_TYPE=               modular
@@ -346,5 +373,11 @@ else
 
 	    [ $exit_on_failure = "yes" ] && die "failed. exiting as requested"
 	fi
+
+	# Add something to clean old versions of packages:
+	lintpkgsrc -K $sandbox/$packages -M $sandbox/$distfiles -P $pkgsrc -r -o -p
+
+	# Remove run script
+	rm $sandbox/tmp/run_pbulk.$$.sh
     done
 fi

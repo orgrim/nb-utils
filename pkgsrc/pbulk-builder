@@ -79,9 +79,9 @@ create_sandbox() {
 	die "Sandbox already exists. Aborting."
     fi
 
-    sh $pkgsrc/mk/bulk/mksandbox --pkgsrc=$pkgsrc --src=$src --without-x $sandbox
+    mksandbox --pkgsrc=$pkgsrc --src=$src --without-x $sandbox
     cat $sandbox/sandbox | sed -e 's/^"$/\/var\/spool \/var\/spool rw \\\
-"/' > $sandbox/sandbox.new
+"/' | sed -e "s,/tree/pkgsrc,$pkgsrc," > $sandbox/sandbox.new
     rm $sandbox/sandbox && mv $sandbox/sandbox.new $sandbox/sandbox && chmod 755 $sandbox/sandbox
     $sandbox/sandbox umount
     $sandbox/sandbox mount
@@ -315,9 +315,6 @@ fi
 # separate sandbox are possible
 lockfile=$sandbox/var/run/`basename $0`.pid
 
-# Check if we are in a screen/tmux
-[ "${TERM}" != "screen" ] && die "You *want* to run that in screen or tmux"
-
 if [ $bootstrap = "yes" ]; then
     create_sandbox
     prepare_pbulk || die "Could prepare pbulk install tree"
@@ -349,6 +346,9 @@ EOF
 
     exit 0
 fi
+
+# Check if we are in a screen/tmux
+[ "${TERM}" != "screen" ] && die "You *want* to run that in screen or tmux"
 
 #
 if [ $one_shot = "yes" ]; then

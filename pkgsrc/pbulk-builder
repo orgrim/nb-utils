@@ -79,7 +79,12 @@ create_sandbox() {
 	die "Sandbox already exists. Aborting."
     fi
 
-    mksandbox --pkgsrc=$pkgsrc --src=$src --without-x $sandbox
+    if [ ! -x /usr/pkg/sbin/mksandbox ]; then
+	die "mksandbox not found. Install pkgtools/mksandbox"
+    fi
+
+    mkdir -p $sandbox
+    /usr/pkg/sbin/mksandbox --pkgsrc=$pkgsrc --src=$src --without-x $sandbox || die "mksandbox failed"
     cat $sandbox/sandbox | sed -e 's/^"$/\/var\/spool \/var\/spool rw \\\
 "/' | sed -e "s,/tree/pkgsrc,$pkgsrc," > $sandbox/sandbox.new
     rm $sandbox/sandbox && mv $sandbox/sandbox.new $sandbox/sandbox && chmod 755 $sandbox/sandbox

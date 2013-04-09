@@ -55,7 +55,7 @@ usage() {
     echo "    -r dir         Release directory (where the sets are)"
     echo "    -o dir         Objects directory"
     echo "    -h             Print this help"
-    echo $1
+    exit $1
 }
 
 args=`getopt r:o:h $*`
